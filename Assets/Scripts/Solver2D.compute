@@ -37,7 +37,6 @@ void AddSourceVelocity(uint2 id : SV_DispatchThreadID)
     uint w, h;
     velocity.GetDimensions(w, h);
 
-    // 力を加える
     if (id.x < w && id.y < h)
     {
         velocity[id] += source[id].xy * velocityCoef * dt;

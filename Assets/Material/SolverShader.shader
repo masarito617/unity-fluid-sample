@@ -44,7 +44,7 @@ Shader "StableFluid/SolverShader"
             {
                 fixed3 solver = tex2D(SolverTex, i.uv);
                 fixed4 col = tex2D(_MainTex, i.uv);
-                col *= 1 - solver.z * 5;
+                col *= 1 - solver.z * 5; // 密度が高いほど黒くなる(5は強さの補正用)
                 col.a = 1;
                 return col;
             }

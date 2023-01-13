@@ -38,18 +38,22 @@ public class MouseSourceProvider : MonoBehaviour
         }
     }
 
+    private Vector3 _lastMousePos;
+
     // 更新
     private void UpdateSource()
     {
+        // マウス入力を取得
         var mousePos = Input.mousePosition;
-        var dpdt = UpdateMousePos(mousePos);
+        var dpdt = mousePos - _lastMousePos;
+        _lastMousePos = mousePos;
 
-        // マウス入力がある場合
+        // マウス入力がある場合、SourceTexを生成
         if (Input.GetMouseButton(0))
         {
             var velocitySource = Vector2.ClampMagnitude(dpdt, 1.0f);
             var uv = Camera.main.ScreenToViewportPoint(mousePos);
-            addSourceMaterial.SetVector(_source2dId, new Vector4(velocitySource.x, velocitySource.y, uv.x, uv.y)); // 移動の大きさ, 現在の座標
+            addSourceMaterial.SetVector(_source2dId, new Vector4(velocitySource.x, velocitySource.y, uv.x, uv.y)); // 移動の大きさ(x,y), 現在のUV座標(z,w)
             addSourceMaterial.SetFloat(_sourceRadiusId, sourceRadius);
             Graphics.Blit(null, _addSourceTex, addSourceMaterial);
             NotifySourceTexUpdate(_addSourceTex);
@@ -60,24 +64,16 @@ public class MouseSourceProvider : MonoBehaviour
         }
     }
 
-    // 破棄
-    private void ReleaseForceField()
-    {
-        Destroy(_addSourceTex);
-    }
-
     // 通知処理
     private void NotifySourceTexUpdate(RenderTexture sourceTex)
     {
         onSourceUpdated.Invoke(sourceTex);
     }
 
-    private Vector3 _lastMousePos;
-    private Vector3 UpdateMousePos(Vector3 mousePos)
+    // 破棄
+    private void ReleaseForceField()
     {
-        var dpdt = mousePos - _lastMousePos;
-        _lastMousePos = mousePos;
-        return dpdt;
+        Destroy(_addSourceTex);
     }
 
     [Serializable]

@@ -12,7 +12,9 @@ public class RenderEffect : MonoBehaviour
 
     private void OnRenderImage(RenderTexture src, RenderTexture dest)
     {
-        CheckRTs(src);
+        // レンダーテクスチャ生成
+        CreateRTs(src);
+
         // エフェクト適用
         Graphics.Blit(src, _rts[0]);
         foreach (var effect in effects)
@@ -20,13 +22,14 @@ public class RenderEffect : MonoBehaviour
             Graphics.Blit(_rts[0], _rts[1], effect);
             (_rts[0], _rts[1]) = (_rts[1], _rts[0]); // Swap
         }
+
         // 最終的な結果を設定
         Graphics.Blit(_rts[0], _output);
         Shader.SetGlobalTexture(propName, _output); // グローバルなテクスチャを設定
         Graphics.Blit(_output, dest);
     }
 
-    private void CheckRTs(RenderTexture src)
+    private void CreateRTs(RenderTexture src)
     {
         // レンダーテクスチャの生成
         if (_rts[0] == null
