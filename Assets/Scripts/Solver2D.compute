@@ -1,12 +1,49 @@
+#pragma kernel AddSourceDensity
+#pragma kernel AddSourceVelocity
 #pragma kernel Draw
 
 #define THREAD_X 32
 #define THREAD_Y 32
 #define THREAD_Z 1
 
-RWTexture2D<float4> solver;
-RWTexture2D<float> density;
-RWTexture2D<float2> velocity;
+RWTexture2D<float4> solver;   // 流体ソルバー
+RWTexture2D<float> density;   // 密度場
+RWTexture2D<float2> velocity; // 速度場
+RWTexture2D<float3> prev;     // 1ステップ前のバッファ
+Texture2D source; // 外力入力バッファ
+
+float dt;
+float densityCoef;  // 密度場外力係数
+float velocityCoef; // 速度場外力係数
+
+// 密度場外力項
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void AddSourceDensity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    density.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        density[id] += source[id].z * densityCoef * dt;
+        prev[id] = float3(prev[id].xy, source[id].z * densityCoef * dt);
+    }
+}
+
+// 速度場外力項
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void AddSourceVelocity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    // 力を加える
+    if (id.x < w && id.y < h)
+    {
+        velocity[id] += source[id].xy * velocityCoef * dt;
+        prev[id] = float3(source[id].xy * velocityCoef * dt, prev[id].z);
+    }
+}
 
 // 描画処理
 [numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
