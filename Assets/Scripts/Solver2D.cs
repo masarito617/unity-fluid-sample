@@ -8,6 +8,8 @@ public class Solver2D : MonoBehaviour
     [SerializeField] private int lod = 0;
     [SerializeField] private float densityCoef;
     [SerializeField] private float velocityCoef;
+    [SerializeField] private float diff;
+    [SerializeField] private float visc;
 
     private RenderTexture _solverTex;
     private RenderTexture _densityTex;
@@ -40,6 +42,8 @@ public class Solver2D : MonoBehaviour
         dt,
         densityCoef,
         velocityCoef,
+        diff,
+        visc,
     }
     private Dictionary<ShaderProps, int> _shaderPropIdMap = new Dictionary<ShaderProps, int>();
 
@@ -50,6 +54,8 @@ public class Solver2D : MonoBehaviour
     {
         AddSourceDensity,
         AddSourceVelocity,
+        DiffuseDensity,
+        DiffuseVelocity,
         Draw,
     }
     private Dictionary<ComputeKernels, int> _kernelMap = new Dictionary<ComputeKernels, int>();
@@ -120,6 +126,8 @@ public class Solver2D : MonoBehaviour
         computeShader.SetFloat(_shaderPropIdMap[ShaderProps.dt], Time.deltaTime);
         computeShader.SetFloat(_shaderPropIdMap[ShaderProps.densityCoef], densityCoef);
         computeShader.SetFloat(_shaderPropIdMap[ShaderProps.velocityCoef], velocityCoef);
+        computeShader.SetFloat(_shaderPropIdMap[ShaderProps.diff], diff);
+        computeShader.SetFloat(_shaderPropIdMap[ShaderProps.visc], visc);
 
         // 密度場、速度場の更新
         DensityStep();
@@ -152,6 +160,18 @@ public class Solver2D : MonoBehaviour
                 Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y),
                 1);
         }
+
+        // 粘性項
+        computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseDensity], _shaderPropIdMap[ShaderProps.density], _densityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseDensity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.DiffuseDensity],
+            Mathf.CeilToInt(_solverTex.width / _gpuThreads.X),
+            Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y),
+            1);
+
+        // TODO 入れ替え
+
+        // TODO 移流項
     }
 
     /// <summary>
@@ -166,12 +186,18 @@ public class Solver2D : MonoBehaviour
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceVelocity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceVelocity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
             computeShader.Dispatch(_kernelMap[ComputeKernels.AddSourceVelocity],
-                Mathf.CeilToInt(_solverTex.width / _gpuThreads.X),
-                Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y),
+                Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X),
+                Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y),
                 1);
         }
 
-        // TODO 粘性項
+        // 粘性項
+        computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseVelocity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseVelocity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.DiffuseVelocity],
+            Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X),
+            Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y),
+            1);
 
         // TODO 入れ替え
 

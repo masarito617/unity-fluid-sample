@@ -311,6 +311,8 @@ MonoBehaviour:
   lod: 0
   densityCoef: 2
   velocityCoef: 2
+  diff: 10
+  visc: 20
   sourceTex: {fileID: 0}
 --- !u!4 &255587070
 Transform:

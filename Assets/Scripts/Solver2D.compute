@@ -1,10 +1,13 @@
 #pragma kernel AddSourceDensity
 #pragma kernel AddSourceVelocity
+#pragma kernel DiffuseDensity
+#pragma kernel DiffuseVelocity
 #pragma kernel Draw
 
 #define THREAD_X 32
 #define THREAD_Y 32
 #define THREAD_Z 1
+#define GS_ITERATE 2 // ガウスザイデル法の反復回数
 
 RWTexture2D<float4> solver;   // 流体ソルバー
 RWTexture2D<float> density;   // 密度場
@@ -15,6 +18,36 @@ Texture2D source; // 外力入力バッファ
 float dt;
 float densityCoef;  // 密度場外力係数
 float velocityCoef; // 速度場外力係数
+float diff; // 拡散係数k
+float visc; // 動粘性係数v
+
+// 境界設定用
+void SetBoundaryDensity(uint2 id, uint w, uint h)
+{
+    // 端
+    density[id] = (id.x == 0)   ? density[id + uint2(   1,    0)] : density[id];
+    density[id] = (id.x == w-1) ? density[id + uint2( w-2, id.y)] : density[id];
+    density[id] = (id.y == 0)   ? density[id + uint2(   0,    1)] : density[id];
+    density[id] = (id.y == h-1) ? density[id + uint2(id.x,  h-2)] : density[id];
+    // 四角
+    density[id] = (id.x == 0   && id.y == 0)   ? 0.5 * (density[uint2(  1,   0)] + density[uint2(  0,   1)]) : density[id];
+    density[id] = (id.x == 0   && id.y == h-1) ? 0.5 * (density[uint2(  1, h-1)] + density[uint2(  0, h-2)]) : density[id];
+    density[id] = (id.x == w-1 && id.y == 0)   ? 0.5 * (density[uint2(w-2,   0)] + density[uint2(w-1,   1)]) : density[id];
+    density[id] = (id.x == w-1 && id.y == h-1) ? 0.5 * (density[uint2(w-2, h-1)] + density[uint2(w-1, h-2)]) : density[id];
+}
+void SetBoundaryVelocity(uint2 id, uint w, uint h)
+{
+    // 端
+    velocity[id] = (id.x == 0)   ? float2(-velocity[id + uint2(  1,    0)].x, velocity[id].y)  : velocity[id];
+    velocity[id] = (id.x == w-1) ? float2(-velocity[id + uint2(w-2, id.y)].x, velocity[id].y)  : velocity[id];
+    velocity[id] = (id.y == 0)   ? float2( velocity[id].x, -velocity[id + uint2(   0,   1)].y) : velocity[id];
+    velocity[id] = (id.y == h-1) ? float2( velocity[id].x, -velocity[id + uint2(id.x, h-2)].y) : velocity[id];
+    // 四角
+    velocity[id] = (id.x == 0   && id.y == 0)   ? 0.5 * (velocity[uint2(  1,   0)] + velocity[uint2(  0,   1)]) : velocity[id];
+    velocity[id] = (id.x == 0   && id.y == h-1) ? 0.5 * (velocity[uint2(  1, h-1)] + velocity[uint2(  0, h-2)]) : velocity[id];
+    velocity[id] = (id.x == w-1 && id.y == 0)   ? 0.5 * (velocity[uint2(w-2,   0)] + velocity[uint2(w-1,   1)]) : velocity[id];
+    velocity[id] = (id.x == w-1 && id.y == h-1) ? 0.5 * (velocity[uint2(w-2, h-1)] + velocity[uint2(w-1, h-2)]) : velocity[id];
+}
 
 // 密度場外力項
 [numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
@@ -41,6 +74,52 @@ void AddSourceVelocity(uint2 id : SV_DispatchThreadID)
     {
         velocity[id] += source[id].xy * velocityCoef * dt;
         prev[id] = float3(source[id].xy * velocityCoef * dt, prev[id].z);
+    }
+}
+
+// 密度場拡散項
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void DiffuseDensity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    density.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        float a = dt * diff * w * h;
+
+        [unroll]
+        for (int k = 0; k < GS_ITERATE; k++)
+        {
+            density[id] = (prev[id].z + a * (
+                density[int2(id.x - 1, id.y    )] + density[int2(id.x + 1, id.y    )] +
+                density[int2(id.x,     id.y - 1)] + density[int2(id.x,     id.y + 1)]
+            )) / (1 + 4 * a);
+            SetBoundaryDensity(id, w, h);
+        }
+    }
+}
+
+// 速度場拡散項
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void DiffuseVelocity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        float a = dt * visc * w * h;
+
+        [unroll]
+        for (int k = 0; k < GS_ITERATE; k++)
+        {
+            velocity[id] = (prev[id].xy + a * (
+                velocity[int2(id.x - 1, id.y    )] + velocity[int2(id.x + 1, id.y    )] +
+                velocity[int2(id.x,     id.y - 1)] + velocity[int2(id.x,     id.y + 1)]
+            )) / (1 + 4 * a);
+            SetBoundaryVelocity(id, w, h);
+        }
     }
 }
 
