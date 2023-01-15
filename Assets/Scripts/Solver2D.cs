@@ -56,6 +56,13 @@ public class Solver2D : MonoBehaviour
         AddSourceVelocity,
         DiffuseDensity,
         DiffuseVelocity,
+        SwapDensity,
+        SwapVelocity,
+        AdvectDensity,
+        AdvectVelocity,
+        ProjectStep1,
+        ProjectStep2,
+        ProjectStep3,
         Draw,
     }
     private Dictionary<ComputeKernels, int> _kernelMap = new Dictionary<ComputeKernels, int>();
@@ -155,23 +162,25 @@ public class Solver2D : MonoBehaviour
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceDensity], _shaderPropIdMap[ShaderProps.source], SourceTex);
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceDensity], _shaderPropIdMap[ShaderProps.density], _densityTex);
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceDensity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
-            computeShader.Dispatch(_kernelMap[ComputeKernels.AddSourceDensity],
-                Mathf.CeilToInt(_solverTex.width / _gpuThreads.X),
-                Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y),
-                1);
+            computeShader.Dispatch(_kernelMap[ComputeKernels.AddSourceDensity], Mathf.CeilToInt(_solverTex.width / _gpuThreads.X), Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y), 1);
         }
 
         // 粘性項
         computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseDensity], _shaderPropIdMap[ShaderProps.density], _densityTex);
         computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseDensity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
-        computeShader.Dispatch(_kernelMap[ComputeKernels.DiffuseDensity],
-            Mathf.CeilToInt(_solverTex.width / _gpuThreads.X),
-            Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y),
-            1);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.DiffuseDensity], Mathf.CeilToInt(_solverTex.width / _gpuThreads.X), Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y), 1);
 
-        // TODO 入れ替え
+        // 入れ替え
+        computeShader.SetTexture(_kernelMap[ComputeKernels.SwapDensity], _shaderPropIdMap[ShaderProps.density], _densityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.SwapDensity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.SwapDensity], Mathf.CeilToInt(_solverTex.width / _gpuThreads.X), Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y), 1);
 
-        // TODO 移流項
+        // 移流項
+        computeShader.SetTexture(_kernelMap[ComputeKernels.AdvectDensity], _shaderPropIdMap[ShaderProps.density], _densityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.AdvectDensity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.AdvectDensity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.AdvectDensity], Mathf.CeilToInt(_solverTex.width / _gpuThreads.X), Mathf.CeilToInt(_solverTex.height / _gpuThreads.Y), 1);
+
     }
 
     /// <summary>
@@ -185,24 +194,44 @@ public class Solver2D : MonoBehaviour
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceVelocity], _shaderPropIdMap[ShaderProps.source], SourceTex);
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceVelocity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
             computeShader.SetTexture(_kernelMap[ComputeKernels.AddSourceVelocity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
-            computeShader.Dispatch(_kernelMap[ComputeKernels.AddSourceVelocity],
-                Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X),
-                Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y),
-                1);
+            computeShader.Dispatch(_kernelMap[ComputeKernels.AddSourceVelocity], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
         }
 
         // 粘性項
         computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseVelocity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
         computeShader.SetTexture(_kernelMap[ComputeKernels.DiffuseVelocity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
-        computeShader.Dispatch(_kernelMap[ComputeKernels.DiffuseVelocity],
-            Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X),
-            Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y),
-            1);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.DiffuseVelocity], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
 
-        // TODO 入れ替え
+        // 質量保存1
+        /*computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep1], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep1], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.ProjectStep1], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep2], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep2], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.ProjectStep2], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep3], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep3], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.ProjectStep3], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);*/
 
-        // TODO 移流項
+        // 入れ替え
+        computeShader.SetTexture(_kernelMap[ComputeKernels.SwapVelocity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.SwapVelocity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.SwapVelocity], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
 
-        // TODO 質量
+        // 移流項
+        computeShader.SetTexture(_kernelMap[ComputeKernels.AdvectVelocity], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.AdvectVelocity], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.AdvectVelocity], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
+
+        // 質量保存2
+        /*computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep1], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep1], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.ProjectStep1], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep2], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep2], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.ProjectStep2], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep3], _shaderPropIdMap[ShaderProps.velocity], _velocityTex);
+        computeShader.SetTexture(_kernelMap[ComputeKernels.ProjectStep3], _shaderPropIdMap[ShaderProps.prev], _prevTex);
+        computeShader.Dispatch(_kernelMap[ComputeKernels.ProjectStep3], Mathf.CeilToInt(_velocityTex.width / _gpuThreads.X), Mathf.CeilToInt(_velocityTex.height / _gpuThreads.Y), 1);*/
     }
 }

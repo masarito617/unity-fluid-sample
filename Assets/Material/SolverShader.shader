@@ -3,6 +3,9 @@ Shader "StableFluid/SolverShader"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        _BgColor ("BgColor", Color) = (1,1,1,1)
+        _AddColor ("AddColor", Color) = (1,1,1,1)
+        _Strength ("Strength", float) = 3
     }
     SubShader
     {
@@ -32,6 +35,10 @@ Shader "StableFluid/SolverShader"
             float4 _MainTex_ST;
             sampler2D SolverTex;
 
+            float4 _BgColor;
+            float4 _AddColor;
+            float _Strength;
+
             v2f vert (appdata v)
             {
                 v2f o;
@@ -43,8 +50,8 @@ Shader "StableFluid/SolverShader"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed3 solver = tex2D(SolverTex, i.uv);
-                fixed4 col = tex2D(_MainTex, i.uv);
-                col *= 1 - solver.z * 5; // 密度が高いほど黒くなる(5は強さの補正用)
+                fixed4 col = _BgColor;
+                col.xyz += _AddColor * solver.z * _Strength;
                 col.a = 1;
                 return col;
             }

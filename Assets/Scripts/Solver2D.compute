@@ -2,12 +2,19 @@
 #pragma kernel AddSourceVelocity
 #pragma kernel DiffuseDensity
 #pragma kernel DiffuseVelocity
+#pragma kernel SwapDensity
+#pragma kernel SwapVelocity
+#pragma kernel AdvectDensity
+#pragma kernel AdvectVelocity
+#pragma kernel ProjectStep1
+#pragma kernel ProjectStep2
+#pragma kernel ProjectStep3
 #pragma kernel Draw
 
 #define THREAD_X 32
 #define THREAD_Y 32
 #define THREAD_Z 1
-#define GS_ITERATE 2 // ガウスザイデル法の反復回数
+#define GS_ITERATE 4 // ガウスザイデル法の反復回数
 
 RWTexture2D<float4> solver;   // 流体ソルバー
 RWTexture2D<float> density;   // 密度場
@@ -21,15 +28,14 @@ float velocityCoef; // 速度場外力係数
 float diff; // 拡散係数k
 float visc; // 動粘性係数v
 
-// 境界設定用
+// 境界設定用(端、四角)
 void SetBoundaryDensity(uint2 id, uint w, uint h)
 {
-    // 端
     density[id] = (id.x == 0)   ? density[id + uint2(   1,    0)] : density[id];
-    density[id] = (id.x == w-1) ? density[id + uint2( w-2, id.y)] : density[id];
+    density[id] = (id.x == w-1) ? density[     uint2( w-2, id.y)] : density[id];
     density[id] = (id.y == 0)   ? density[id + uint2(   0,    1)] : density[id];
-    density[id] = (id.y == h-1) ? density[id + uint2(id.x,  h-2)] : density[id];
-    // 四角
+    density[id] = (id.y == h-1) ? density[     uint2(id.x,  h-2)] : density[id];
+
     density[id] = (id.x == 0   && id.y == 0)   ? 0.5 * (density[uint2(  1,   0)] + density[uint2(  0,   1)]) : density[id];
     density[id] = (id.x == 0   && id.y == h-1) ? 0.5 * (density[uint2(  1, h-1)] + density[uint2(  0, h-2)]) : density[id];
     density[id] = (id.x == w-1 && id.y == 0)   ? 0.5 * (density[uint2(w-2,   0)] + density[uint2(w-1,   1)]) : density[id];
@@ -37,16 +43,41 @@ void SetBoundaryDensity(uint2 id, uint w, uint h)
 }
 void SetBoundaryVelocity(uint2 id, uint w, uint h)
 {
-    // 端
     velocity[id] = (id.x == 0)   ? float2(-velocity[id + uint2(  1,    0)].x, velocity[id].y)  : velocity[id];
-    velocity[id] = (id.x == w-1) ? float2(-velocity[id + uint2(w-2, id.y)].x, velocity[id].y)  : velocity[id];
+    velocity[id] = (id.x == w-1) ? float2(-velocity[     uint2(w-2, id.y)].x, velocity[id].y)  : velocity[id];
     velocity[id] = (id.y == 0)   ? float2( velocity[id].x, -velocity[id + uint2(   0,   1)].y) : velocity[id];
-    velocity[id] = (id.y == h-1) ? float2( velocity[id].x, -velocity[id + uint2(id.x, h-2)].y) : velocity[id];
-    // 四角
+    velocity[id] = (id.y == h-1) ? float2( velocity[id].x, -velocity[     uint2(id.x, h-2)].y) : velocity[id];
+
     velocity[id] = (id.x == 0   && id.y == 0)   ? 0.5 * (velocity[uint2(  1,   0)] + velocity[uint2(  0,   1)]) : velocity[id];
     velocity[id] = (id.x == 0   && id.y == h-1) ? 0.5 * (velocity[uint2(  1, h-1)] + velocity[uint2(  0, h-2)]) : velocity[id];
     velocity[id] = (id.x == w-1 && id.y == 0)   ? 0.5 * (velocity[uint2(w-2,   0)] + velocity[uint2(w-1,   1)]) : velocity[id];
     velocity[id] = (id.x == w-1 && id.y == h-1) ? 0.5 * (velocity[uint2(w-2, h-1)] + velocity[uint2(w-1, h-2)]) : velocity[id];
+}
+void SetBoundaryDivergence(uint2 id, uint w, uint h)
+{
+    // Y方向の調整
+    prev[id] = (id.x == 0)   ? float3(prev[id].x, prev[id + uint2(   1,    0)].y, prev[id].z) : prev[id];
+    prev[id] = (id.x == w-1) ? float3(prev[id].x, prev[     uint2( w-2, id.y)].y, prev[id].z) : prev[id];
+    prev[id] = (id.y == 0)   ? float3(prev[id].x, prev[id + uint2(   0,    1)].y, prev[id].z) : prev[id];
+    prev[id] = (id.y == h-1) ? float3(prev[id].x, prev[     uint2(id.x,  h-2)].y, prev[id].z) : prev[id];
+
+    prev[id] = (id.x == 0   && id.y == 0)   ? float3(prev[id].x, 0.5 * (prev[uint2(  1,   0)].y + prev[uint2(  0,   1)].y), prev[id].z) : prev[id];
+    prev[id] = (id.x == 0   && id.y == h-1) ? float3(prev[id].x, 0.5 * (prev[uint2(  1, h-1)].y + prev[uint2(  0, h-2)].y), prev[id].z) : prev[id];
+    prev[id] = (id.x == w-1 && id.y == 0)   ? float3(prev[id].x, 0.5 * (prev[uint2(w-2,   0)].y + prev[uint2(w-1,   1)].y), prev[id].z) : prev[id];
+    prev[id] = (id.x == w-1 && id.y == h-1) ? float3(prev[id].x, 0.5 * (prev[uint2(w-2, h-1)].y + prev[uint2(w-1, h-2)].y), prev[id].z) : prev[id];
+}
+void SetBoundaryDivPositive(uint2 id, uint w, uint h)
+{
+    // X方向の調整
+    prev[id] = (id.x == 0)   ? float3(prev[id + uint2(   1,    0)].x, prev[id].yz) : prev[id];
+    prev[id] = (id.x == w-1) ? float3(prev[     uint2( w-2, id.y)].x, prev[id].yz) : prev[id];
+    prev[id] = (id.y == 0)   ? float3(prev[id + uint2(   0,    1)].x, prev[id].yz) : prev[id];
+    prev[id] = (id.y == h-1) ? float3(prev[     uint2(id.x,  h-2)].x, prev[id].yz) : prev[id];
+
+    prev[id] = (id.x == 0   && id.y == 0)   ? float3(0.5 * (prev[uint2(  1,   0)].x + prev[uint2(  0,   1)].x), prev[id].yz) : prev[id];
+    prev[id] = (id.x == 0   && id.y == h-1) ? float3(0.5 * (prev[uint2(  1, h-1)].x + prev[uint2(  0, h-2)].x), prev[id].yz) : prev[id];
+    prev[id] = (id.x == w-1 && id.y == 0)   ? float3(0.5 * (prev[uint2(w-2,   0)].x + prev[uint2(w-1,   1)].x), prev[id].yz) : prev[id];
+    prev[id] = (id.x == w-1 && id.y == h-1) ? float3(0.5 * (prev[uint2(w-2, h-1)].x + prev[uint2(w-1, h-2)].x), prev[id].yz) : prev[id];
 }
 
 // 密度場外力項
@@ -78,6 +109,7 @@ void AddSourceVelocity(uint2 id : SV_DispatchThreadID)
 }
 
 // 密度場拡散項
+// ガウスザイデル法で解く
 [numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
 void DiffuseDensity(uint2 id : SV_DispatchThreadID)
 {
@@ -101,6 +133,7 @@ void DiffuseDensity(uint2 id : SV_DispatchThreadID)
 }
 
 // 速度場拡散項
+// ガウスザイデル法で解く
 [numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
 void DiffuseVelocity(uint2 id : SV_DispatchThreadID)
 {
@@ -120,6 +153,178 @@ void DiffuseVelocity(uint2 id : SV_DispatchThreadID)
             )) / (1 + 4 * a);
             SetBoundaryVelocity(id, w, h);
         }
+    }
+}
+
+// 速度場移流項
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void AdvectDensity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    density.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        int ddx0, ddx1, ddy0, ddy1;
+        float x, y, s0, t0, s1, t1, dfdt;
+
+        dfdt = dt * (w + h) * 0.5;
+
+        // バックトレースポイント
+        x = (float) id.x - dfdt * velocity[id].x;
+        y = (float) id.y - dfdt * velocity[id].y;
+        clamp(x, 0.5, w + 0.5);
+        clamp(y, 0.5, h + 0.5);
+        // 近似の偏微分セルを求める
+        ddx0 = floor(x);
+        ddx1 = ddx0 + 1;
+        ddy0 = floor(y);
+        ddy1 = ddy0 + 1;
+        // 近傍との線形補間用の差分を取っておく
+        s1 = x - ddx0;
+        s0 = 1.0 - s1;
+        t1 = y - ddy0;
+        t0 = 1.0 - t1;
+
+        // 1step前の値を近傍との線形補間用の差分を取って、現在の速度場に代入
+        density[id] =
+            s0 * (t0 * prev[int2(ddx0, ddy0)].z + t1 * prev[int2(ddx0, ddy1)].z) +
+            s1 * (t0 * prev[int2(ddx1, ddy0)].z + t1 * prev[int2(ddx1, ddy1)].z);
+        SetBoundaryDensity(id, w, h);
+    }
+}
+
+// 速度場移流項
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void AdvectVelocity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        int ddx0, ddx1, ddy0, ddy1;
+        float x, y, s0, t0, s1, t1, dfdt;
+
+        dfdt = dt * (w + h) * 0.5;
+
+        // バックトレースポイント
+        x = (float) id.x - dfdt * prev[id].x;
+        y = (float) id.y - dfdt * prev[id].y;
+        clamp(x, 0.5, w + 0.5);
+        clamp(y, 0.5, h + 0.5);
+        // 近似の偏微分セルを求める
+        ddx0 = floor(x);
+        ddx1 = ddx0 + 1;
+        ddy0 = floor(y);
+        ddy1 = ddy0 + 1;
+        // 近傍との線形補間用の差分を取っておく
+        s1 = x - ddx0;
+        s0 = 1.0 - s1;
+        t1 = y - ddy0;
+        t0 = 1.0 - t1;
+
+        // 1step前の値を近傍との線形補間用の差分を取って、現在の速度場に代入
+        velocity[id] =
+            s0 * (t0 * prev[int2(ddx0, ddy0)].xy + t1 * prev[int2(ddx0, ddy1)].xy) +
+            s1 * (t0 * prev[int2(ddx1, ddy0)].xy + t1 * prev[int2(ddx1, ddy1)].xy);
+        SetBoundaryVelocity(id, w, h);
+    }
+}
+
+// 密度場の入れ替え
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void SwapDensity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    density.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        float temp = density[id];
+        prev[id] = float3(prev[id].xy, temp);
+    }
+}
+
+// 密度場の入れ替え
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void SwapVelocity(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        float2 temp = float2(velocity[id].x, velocity[id].y);
+        prev[id] = float3(temp, prev[id].z);
+    }
+}
+
+// 質量保存Step1
+// 速度場から発散の算出
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void ProjectStep1(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        float2 uvd;
+        uvd = float2(1.0/w, 1.0/h);
+
+        prev[id] = float3(0.0,
+            -0.5 *
+            (uvd.x * (velocity[int2(id.x + 1, id.y)].x + velocity[int2(id.x - 1, id.y)].x)) +
+            (uvd.y * (velocity[int2(id.x, id.y + 1)].y - velocity[int2(id.x, id.y - 1)].y)),
+            prev[id].z);
+        SetBoundaryDivergence(id, w, h);
+        SetBoundaryDivPositive(id, w, h);
+    }
+}
+// 質量保存Step2
+// 発散からガウスザイデル法で解く
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void ProjectStep2(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        for (int k = 0; k < GS_ITERATE; k++)
+        {
+            prev[id] = float3(
+                (prev[id].y +
+                prev[uint2(id.x - 1, id.y    )].x + prev[uint2(id.x + 1, id.y    )].x +
+                prev[uint2(id.x,     id.y - 1)].x + prev[uint2(id.x,     id.y + 1)].x) / 4,
+                prev[id].yz);
+            SetBoundaryDivPositive(id, w, h);
+        }
+    }
+}
+// 質量保存Step3
+// ∇･u = 0 にする
+[numthreads(THREAD_X, THREAD_Y, THREAD_Z)]
+void ProjectStep3(uint2 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    velocity.GetDimensions(w, h);
+
+    if (id.x < w && id.y < h)
+    {
+        float velX, velY;
+        float2 uvd;
+        uvd = float2(1.0/w, 1.0/h);
+
+        velX = velocity[id].x;
+        velY = velocity[id].y;
+
+        velX -= 0.5 * (prev[uint2(id.x + 1, id.y)].x - prev[uint2(id.x - 1, id.y)].x) / uvd.x;
+        velY -= 0.5 * (prev[uint2(id.x, id.y + 1)].x - prev[uint2(id.x, id.y - 1)].x) / uvd.y;
+
+        velocity[id] = float2(velX, velY);
+        SetBoundaryVelocity(id, w, h);
     }
 }
 
